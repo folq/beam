@@ -139,6 +139,7 @@ import           Data.Proxy
 import           Data.Scientific (Scientific, formatScientific, FPFormat(Fixed))
 import           Data.String
 import qualified Data.Text as T
+import qualified Data.Text.Encoding as TE
 import           Data.Time (LocalTime)
 import           Data.Type.Bool
 import qualified Data.Vector as V
@@ -153,6 +154,7 @@ import qualified Database.PostgreSQL.Simple.Range as Pg
 
 import           GHC.TypeLits
 import           GHC.Exts hiding (toList)
+import           GHC.Generics hiding (C)
 
 -- ** Postgres-specific functions
 
@@ -810,6 +812,10 @@ class IsPgJSON (json :: * -> *) where
   pgJsonObjectAgg :: QExpr Postgres s key -> QExpr Postgres s value
                   -> QAgg Postgres s (json a)
 
+  pgRowToJson :: Beamable t
+              => t (QGenExpr ctxt Postgres s)
+              -> QGenExpr ctxt Postgres s (t Identity)
+
 instance IsPgJSON PgJSON where
   pgJsonEach (QExpr a) =
     QExpr $ fmap (PgExpressionSyntax . mappend (emit "json_each") . pgParens . fromPgExpression) a
@@ -840,6 +846,9 @@ instance IsPgJSON PgJSON where
     sequenceA $ [ fromPgExpression <$> keys, pure (emit ", ")
                 , fromPgExpression <$> values ]
 
+  pgRowToJson _ =
+    QExpr $ \t -> PgExpressionSyntax . mappend (emit "row_to_json") . pgParens . emit $ TE.encodeUtf8 t
+
 instance IsPgJSON PgJSONB where
   pgJsonEach (QExpr a) =
     QExpr $ fmap (PgExpressionSyntax . mappend (emit "jsonb_each") . pgParens . fromPgExpression) a
@@ -869,6 +878,9 @@ instance IsPgJSON PgJSONB where
     QExpr $ fmap (PgExpressionSyntax . mappend (emit "jsonb_object_agg") . pgParens . mconcat) $
     sequenceA $ [ fromPgExpression <$> keys, pure (emit ", ")
                 , fromPgExpression <$> values ]
+
+  pgRowToJson _ =
+    QExpr $ \t -> PgExpressionSyntax . mappend (emit "row_to_json") . pgParens . emit $ TE.encodeUtf8 t
 
 -- | Postgres @&#x40;>@ and @<&#x40;@ operators for JSON. Return true if the
 -- json object pointed to by the arrow is completely contained in the other. See
